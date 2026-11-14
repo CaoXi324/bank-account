@@ -1,0 +1,13 @@
+.git
+.idea
+.vscode
+.cursor
+target
+*.iml
+*.ipr
+*.iws
+HELP.md
+README.md
+docker-compose.yml
+.dockerignore
+**/.DS_Store
