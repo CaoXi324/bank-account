@@ -20,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -54,8 +55,15 @@ class AccountControllerTest {
 	@Autowired
 	private TransferRepository transfers;
 
+	@Autowired
+	private CacheManager cacheManager;
+
 	@AfterEach
 	void deleteSavedRows() {
+		var accounts = cacheManager.getCache("accounts");
+		if (accounts != null) {
+			accounts.clear();
+		}
 		transfers.deleteAll();
 		idempotencyRecords.deleteAll();
 		repository.deleteAll();
@@ -239,6 +247,67 @@ class AccountControllerTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.accountNumber").value(accountNumber))
 				.andExpect(jsonPath("$.status").value("CLOSED"));
+	}
+
+	@Test
+	void servesCachedAccountDetailsUntilTheAccountChanges() throws Exception {
+		String accountNumber = createAccount("cache-ada", "Ada Lovelace", "110101199001011234", "10.00");
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.balance").value(10.00));
+
+		BankAccount account = repository.findById(accountNumber).orElseThrow();
+		account.setBalance(new BigDecimal("99.00"));
+		repository.saveAndFlush(account);
+
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.balance").value(10.00))
+				.andExpect(jsonPath("$.holderName").value("Ada Lovelace"));
+
+		mockMvc.perform(patch("/accounts/{accountNumber}", accountNumber)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"holderName\":\"Augusta Ada King\"}"))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.holderName").value("Augusta Ada King"))
+				.andExpect(jsonPath("$.balance").value(99.00));
+	}
+
+	@Test
+	void dropsCachedAccountDetailsWhenTheAccountIsClosed() throws Exception {
+		String accountNumber = createAccount("cache-closed", "Ada Lovelace", "110101199001011234", "10.00");
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(jsonPath("$.status").value("OPEN"));
+
+		mockMvc.perform(delete("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("CLOSED"));
+	}
+
+	@Test
+	void dropsCachedAccountDetailsAfterATransfer() throws Exception {
+		String from = createAccount("cache-transfer-from", "Ada Lovelace", "110101199001011234", "10.00");
+		String to = createAccount("cache-transfer-to", "Grace Hopper", "110101199002021234", "5.00");
+		mockMvc.perform(get("/accounts/{accountNumber}", from))
+				.andExpect(jsonPath("$.balance").value(10.00));
+		mockMvc.perform(get("/accounts/{accountNumber}", to))
+				.andExpect(jsonPath("$.balance").value(5.00));
+
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson(from, to, "4.50")))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(get("/accounts/{accountNumber}", from))
+				.andExpect(jsonPath("$.balance").value(5.50));
+		mockMvc.perform(get("/accounts/{accountNumber}", to))
+				.andExpect(jsonPath("$.balance").value(9.50));
 	}
 
 	@Test

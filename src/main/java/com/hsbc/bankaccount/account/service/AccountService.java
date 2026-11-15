@@ -3,6 +3,9 @@ package com.hsbc.bankaccount.account.service;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -36,6 +39,8 @@ public class AccountService {
 	private static final int MAX_ATTEMPTS = 5;
 
 	private static final int MAX_PAGE_SIZE = 100;
+
+	private static final String ACCOUNT_CACHE = "accounts";
 
 	private final BankAccountRepository repository;
 
@@ -71,6 +76,7 @@ public class AccountService {
 		return response;
 	}
 
+	@Cacheable(cacheNames = ACCOUNT_CACHE, key = "#accountNumber")
 	@Transactional(readOnly = true)
 	public AccountResponse get(String accountNumber) {
 		return repository.findById(accountNumber)
@@ -86,6 +92,7 @@ public class AccountService {
 		return AccountPageResponse.from(repository.findAll(PageRequest.of(page, size, Sort.by("accountNumber"))));
 	}
 
+	@CacheEvict(cacheNames = ACCOUNT_CACHE, key = "#accountNumber")
 	@Transactional
 	public AccountResponse update(String accountNumber, UpdateAccountRequest request) {
 		validateUpdate(request);
@@ -103,6 +110,10 @@ public class AccountService {
 		return AccountResponse.from(account);
 	}
 
+	@Caching(evict = {
+			@CacheEvict(cacheNames = ACCOUNT_CACHE, key = "#request.fromAccountNumber"),
+			@CacheEvict(cacheNames = ACCOUNT_CACHE, key = "#request.toAccountNumber")
+	})
 	@Transactional
 	public TransferResponse transfer(TransferRequest request) {
 		String fromAccountNumber = request.fromAccountNumber();
@@ -143,6 +154,7 @@ public class AccountService {
 				transfer.getCreatedAt());
 	}
 
+	@CacheEvict(cacheNames = ACCOUNT_CACHE, key = "#accountNumber")
 	@Transactional
 	public void delete(String accountNumber) {
 		BankAccount account = repository.findById(accountNumber)
