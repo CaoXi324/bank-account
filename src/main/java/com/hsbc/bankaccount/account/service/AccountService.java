@@ -53,6 +53,13 @@ public class AccountService {
 		return response;
 	}
 
+	@Transactional(readOnly = true)
+	public AccountResponse get(String accountNumber) {
+		return repository.findById(accountNumber)
+				.map(AccountResponse::from)
+				.orElseThrow(() -> new AccountNotFoundException(accountNumber));
+	}
+
 	@Transactional
 	public AccountResponse update(String accountNumber, UpdateAccountRequest request) {
 		validateUpdate(request);

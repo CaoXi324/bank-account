@@ -3,6 +3,7 @@ package com.hsbc.bankaccount.account.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -205,6 +206,40 @@ class AccountControllerTest {
 				.andExpect(jsonPath("$.error").value("invalid_idempotency_key"));
 
 		assertThat(repository.findAll()).isEmpty();
+	}
+
+	@Test
+	void returnsAccountDetails() throws Exception {
+		String accountNumber = createAccount("get-ada", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accountNumber").value(accountNumber))
+				.andExpect(jsonPath("$.holderName").value("Ada Lovelace"))
+				.andExpect(jsonPath("$.holderId").value("110101199001011234"))
+				.andExpect(jsonPath("$.contactInfo").value("ada@example.com"))
+				.andExpect(jsonPath("$.balance").value(10.00))
+				.andExpect(jsonPath("$.status").value("OPEN"));
+	}
+
+	@Test
+	void returnsClosedAccountDetails() throws Exception {
+		String accountNumber = createAccount("get-closed", "Ada Lovelace", "110101199001011234", "10.00");
+		mockMvc.perform(delete("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accountNumber").value(accountNumber))
+				.andExpect(jsonPath("$.status").value("CLOSED"));
+	}
+
+	@Test
+	void rejectsAMissingAccount() throws Exception {
+		mockMvc.perform(get("/accounts/{accountNumber}", "1000000000000001"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error").value("account_not_found"))
+				.andExpect(jsonPath("$.message").value("Account number 1000000000000001 does not exist"));
 	}
 
 	@Test
