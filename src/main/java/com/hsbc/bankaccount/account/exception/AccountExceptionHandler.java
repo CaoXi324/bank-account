@@ -51,4 +51,16 @@ public class AccountExceptionHandler {
 				.body(new ApiError("idempotency_in_progress", exception.getMessage()));
 	}
 
+	@ExceptionHandler(AccountNotFoundException.class)
+	ResponseEntity<ApiError> accountNotFound(AccountNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ApiError("account_not_found", exception.getMessage()));
+	}
+
+	@ExceptionHandler(AccountClosedException.class)
+	ResponseEntity<ApiError> accountClosed(AccountClosedException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ApiError("account_closed", exception.getMessage()));
+	}
+
 }

@@ -16,9 +16,7 @@ public final class AccountRequestHash {
 	public static String of(CreateAccountRequest request) {
 		String canonical = request.holderName()
 				+ "\n"
-				+ request.idCardNumber()
-				+ "\n"
-				+ request.phoneNumber()
+				+ request.holderId()
 				+ "\n"
 				+ request.balance().setScale(2, RoundingMode.HALF_UP).toPlainString();
 		try {

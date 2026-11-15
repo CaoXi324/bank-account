@@ -5,7 +5,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
+import com.hsbc.bankaccount.account.entity.AccountStatus;
 import com.hsbc.bankaccount.account.entity.BankAccount;
+import com.hsbc.bankaccount.account.exception.AccountClosedException;
+import com.hsbc.bankaccount.account.exception.AccountNotFoundException;
 import com.hsbc.bankaccount.account.repository.BankAccountRepository;
 
 import jakarta.persistence.EntityManager;
@@ -36,14 +39,23 @@ public class AccountService {
 		BankAccount account = new BankAccount(
 				nextAvailableAccountNumber(),
 				request.holderName(),
-				request.idCardNumber(),
-				request.phoneNumber(),
+				request.holderId(),
 				request.balance());
 		entityManager.persist(account);
 		entityManager.flush();
 		AccountResponse response = AccountResponse.from(account);
 		idempotencyRecords.markCompleted(idempotencyRecordId, response);
 		return response;
+	}
+
+	@Transactional
+	public void delete(String accountNumber) {
+		BankAccount account = repository.findById(accountNumber)
+				.orElseThrow(() -> new AccountNotFoundException(accountNumber));
+		if (account.getStatus() == AccountStatus.CLOSED) {
+			throw new AccountClosedException(accountNumber);
+		}
+		account.close();
 	}
 
 	private String nextAvailableAccountNumber() {
