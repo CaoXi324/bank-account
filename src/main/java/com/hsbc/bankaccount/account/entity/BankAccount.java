@@ -1,4 +1,4 @@
-package com.hsbc.bankaccount.account;
+package com.hsbc.bankaccount.account.entity;
 
 import java.math.BigDecimal;
 
