@@ -3,6 +3,7 @@ package com.hsbc.bankaccount.account.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -63,6 +64,7 @@ class AccountControllerTest {
 				.andExpect(header().string("Location", matchesPattern("http://localhost/accounts/" + ACCOUNT_NUMBER)))
 				.andExpect(jsonPath("$.holderName").value("Ada Lovelace"))
 				.andExpect(jsonPath("$.holderId").value("110101199001011234"))
+				.andExpect(jsonPath("$.contactInfo").value("ada@example.com"))
 				.andExpect(jsonPath("$.balance").value(1250.50))
 				.andExpect(jsonPath("$.status").value("OPEN"))
 				.andReturn();
@@ -93,8 +95,8 @@ class AccountControllerTest {
 				.andExpect(jsonPath("$.error").value("validation_failed"))
 				.andExpect(jsonPath("$.fields.holderName").exists())
 				.andExpect(jsonPath("$.fields.holderId").exists())
+				.andExpect(jsonPath("$.fields.contactInfo").exists())
 				.andExpect(jsonPath("$.fields.balance").exists())
-				.andExpect(jsonPath("$.fields.phoneNumber").doesNotExist())
 				.andExpect(jsonPath("$.fields.accountNumber").doesNotExist());
 	}
 
@@ -145,7 +147,7 @@ class AccountControllerTest {
 
 	@Test
 	void rejectsAnIdempotencyKeyThatIsStillProcessing() throws Exception {
-		CreateAccountRequest request = new CreateAccountRequest("Ada Lovelace", "110101199001011234", new BigDecimal("10.00"));
+		CreateAccountRequest request = new CreateAccountRequest("Ada Lovelace", "110101199001011234", "ada@example.com", new BigDecimal("10.00"));
 		idempotencyRecords.saveAndFlush(IdempotencyRecord.processing("busy-key", AccountRequestHash.of(request), Instant.now(), Duration.ofHours(24)));
 
 		mockMvc.perform(post("/accounts")
@@ -206,6 +208,99 @@ class AccountControllerTest {
 	}
 
 	@Test
+	void updatesTheHolderNameAndContactInfo() throws Exception {
+		String accountNumber = createAccount("update-ada", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(patch("/accounts/{accountNumber}", accountNumber)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"holderName\":\"Augusta Ada King\",\"contactInfo\":\"king@example.com\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accountNumber").value(accountNumber))
+				.andExpect(jsonPath("$.holderName").value("Augusta Ada King"))
+				.andExpect(jsonPath("$.contactInfo").value("king@example.com"))
+				.andExpect(jsonPath("$.holderId").value("110101199001011234"))
+				.andExpect(jsonPath("$.balance").value(10.00))
+				.andExpect(jsonPath("$.status").value("OPEN"));
+
+		assertThat(repository.findById(accountNumber)).get()
+				.extracting(BankAccount::getHolderName, BankAccount::getContactInfo)
+				.containsExactly("Augusta Ada King", "king@example.com");
+	}
+
+	@Test
+	void rejectsAnEmptyUpdateRequest() throws Exception {
+		String accountNumber = createAccount("update-empty", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(patch("/accounts/{accountNumber}", accountNumber)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("EMPTY_UPDATE_REQUEST"));
+
+		assertThat(repository.findById(accountNumber)).get()
+				.extracting(BankAccount::getHolderName, BankAccount::getContactInfo)
+				.containsExactly("Ada Lovelace", "ada@example.com");
+	}
+
+	@Test
+	void rejectsInvalidHolderName() throws Exception {
+		String accountNumber = createAccount("update-invalid-name", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(patch("/accounts/{accountNumber}", accountNumber)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"holderName\":\"\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("INVALID_ACCOUNT_HOLDER_NAME"));
+
+		assertThat(repository.findById(accountNumber)).get()
+				.extracting(BankAccount::getHolderName, BankAccount::getContactInfo)
+				.containsExactly("Ada Lovelace", "ada@example.com");
+	}
+
+	@Test
+	void rejectsInvalidContactInfo() throws Exception {
+		String accountNumber = createAccount("update-invalid", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(patch("/accounts/{accountNumber}", accountNumber)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"holderName\":\"Augusta Ada King\",\"contactInfo\":\"\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("INVALID_CONTACT_INFO"));
+
+		assertThat(repository.findById(accountNumber)).get()
+				.extracting(BankAccount::getHolderName, BankAccount::getContactInfo)
+				.containsExactly("Ada Lovelace", "ada@example.com");
+	}
+
+	@Test
+	void rejectsUpdatingAClosedAccount() throws Exception {
+		String accountNumber = createAccount("update-closed", "Ada Lovelace", "110101199001011234", "10.00");
+		mockMvc.perform(delete("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(patch("/accounts/{accountNumber}", accountNumber)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"holderName\":\"Augusta Ada King\",\"contactInfo\":\"king@example.com\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error").value("account_closed"))
+				.andExpect(jsonPath("$.message").value("Account number " + accountNumber + " is closed"));
+
+		assertThat(repository.findById(accountNumber)).get()
+				.extracting(BankAccount::getHolderName)
+				.isEqualTo("Ada Lovelace");
+	}
+
+	@Test
+	void rejectsUpdatingAMissingAccount() throws Exception {
+		mockMvc.perform(patch("/accounts/{accountNumber}", "1000000000000001")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"holderName\":\"Augusta Ada King\",\"contactInfo\":\"king@example.com\"}"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error").value("account_not_found"))
+				.andExpect(jsonPath("$.message").value("Account number 1000000000000001 does not exist"));
+	}
+
+	@Test
 	void deletesAnExistingAccount() throws Exception {
 		String accountNumber = createAccount("delete-ada", "Ada Lovelace", "110101199001011234", "10.00");
 
@@ -254,6 +349,7 @@ class AccountControllerTest {
 				{
 				  "holderName": "%s",
 				  "holderId": "%s",
+				  "contactInfo": "ada@example.com",
 				  "balance": %s
 				}
 				""".formatted(holderName, holderId, balance);

@@ -22,6 +22,24 @@ public class AccountExceptionHandler {
 				.body(new ApiError("validation_failed", "Request validation failed", fields));
 	}
 
+	@ExceptionHandler(EmptyUpdateRequestException.class)
+	ResponseEntity<ApiError> emptyUpdateRequest(EmptyUpdateRequestException exception) {
+		return ResponseEntity.badRequest()
+				.body(new ApiError("EMPTY_UPDATE_REQUEST", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidAccountHolderNameException.class)
+	ResponseEntity<ApiError> invalidAccountHolderName(InvalidAccountHolderNameException exception) {
+		return ResponseEntity.badRequest()
+				.body(new ApiError("INVALID_ACCOUNT_HOLDER_NAME", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidContactInfoException.class)
+	ResponseEntity<ApiError> invalidContactInfo(InvalidContactInfoException exception) {
+		return ResponseEntity.badRequest()
+				.body(new ApiError("INVALID_CONTACT_INFO", exception.getMessage()));
+	}
+
 	@ExceptionHandler(MissingRequestHeaderException.class)
 	ResponseEntity<ApiError> missingIdempotencyKey(MissingRequestHeaderException exception) {
 		if (!"Idempotency-Key".equals(exception.getHeaderName())) {

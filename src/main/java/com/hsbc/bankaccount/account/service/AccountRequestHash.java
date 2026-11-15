@@ -18,6 +18,8 @@ public final class AccountRequestHash {
 				+ "\n"
 				+ request.holderId()
 				+ "\n"
+				+ request.contactInfo()
+				+ "\n"
 				+ request.balance().setScale(2, RoundingMode.HALF_UP).toPlainString();
 		try {
 			byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));

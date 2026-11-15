@@ -9,6 +9,7 @@ public record AccountResponse(
 		String accountNumber,
 		String holderName,
 		String holderId,
+		String contactInfo,
 		BigDecimal balance,
 		AccountStatus status) {
 
@@ -17,6 +18,7 @@ public record AccountResponse(
 				account.getAccountNumber(),
 				account.getHolderName(),
 				account.getHolderId(),
+				account.getContactInfo(),
 				account.getBalance(),
 				account.getStatus());
 	}

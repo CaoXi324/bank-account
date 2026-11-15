@@ -23,6 +23,9 @@ public class BankAccount {
 	@Column(name = "holder_id", nullable = false, length = 18)
 	private String holderId;
 
+	@Column(name = "contact_info", nullable = false, length = 200)
+	private String contactInfo;
+
 	@Column(nullable = false, precision = 19, scale = 2)
 	private BigDecimal balance;
 
@@ -33,10 +36,11 @@ public class BankAccount {
 	protected BankAccount() {
 	}
 
-	public BankAccount(String accountNumber, String holderName, String holderId, BigDecimal balance) {
+	public BankAccount(String accountNumber, String holderName, String holderId, String contactInfo, BigDecimal balance) {
 		this.accountNumber = accountNumber;
 		this.holderName = holderName;
 		this.holderId = holderId;
+		this.contactInfo = contactInfo;
 		this.balance = balance;
 		this.status = AccountStatus.OPEN;
 	}
@@ -55,6 +59,14 @@ public class BankAccount {
 
 	public String getHolderId() {
 		return holderId;
+	}
+
+	public String getContactInfo() {
+		return contactInfo;
+	}
+
+	public void setContactInfo(String contactInfo) {
+		this.contactInfo = contactInfo;
 	}
 
 	public BigDecimal getBalance() {

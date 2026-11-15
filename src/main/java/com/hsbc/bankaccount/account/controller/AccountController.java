@@ -4,6 +4,7 @@ import java.net.URI;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,6 +15,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
+import com.hsbc.bankaccount.account.dto.UpdateAccountRequest;
 import com.hsbc.bankaccount.account.service.AccountService;
 import com.hsbc.bankaccount.account.service.CreateAccountService;
 
@@ -42,6 +44,11 @@ public class AccountController {
 				.buildAndExpand(created.accountNumber())
 				.toUri();
 		return ResponseEntity.created(location).body(created);
+	}
+
+	@PatchMapping("/{accountNumber}")
+	public AccountResponse update(@PathVariable String accountNumber, @Valid @RequestBody UpdateAccountRequest request) {
+		return accountService.update(accountNumber, request);
 	}
 
 	@DeleteMapping("/{accountNumber}")

@@ -5,10 +5,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
+import com.hsbc.bankaccount.account.dto.UpdateAccountRequest;
 import com.hsbc.bankaccount.account.entity.AccountStatus;
 import com.hsbc.bankaccount.account.entity.BankAccount;
 import com.hsbc.bankaccount.account.exception.AccountClosedException;
 import com.hsbc.bankaccount.account.exception.AccountNotFoundException;
+import com.hsbc.bankaccount.account.exception.EmptyUpdateRequestException;
+import com.hsbc.bankaccount.account.exception.InvalidAccountHolderNameException;
+import com.hsbc.bankaccount.account.exception.InvalidContactInfoException;
 import com.hsbc.bankaccount.account.repository.BankAccountRepository;
 
 import jakarta.persistence.EntityManager;
@@ -40,12 +44,30 @@ public class AccountService {
 				nextAvailableAccountNumber(),
 				request.holderName(),
 				request.holderId(),
+				request.contactInfo(),
 				request.balance());
 		entityManager.persist(account);
 		entityManager.flush();
 		AccountResponse response = AccountResponse.from(account);
 		idempotencyRecords.markCompleted(idempotencyRecordId, response);
 		return response;
+	}
+
+	@Transactional
+	public AccountResponse update(String accountNumber, UpdateAccountRequest request) {
+		validateUpdate(request);
+		BankAccount account = repository.findById(accountNumber)
+				.orElseThrow(() -> new AccountNotFoundException(accountNumber));
+		if (account.getStatus() == AccountStatus.CLOSED) {
+			throw new AccountClosedException(accountNumber);
+		}
+		if (request.holderName() != null) {
+			account.setHolderName(request.holderName());
+		}
+		if (request.contactInfo() != null) {
+			account.setContactInfo(request.contactInfo());
+		}
+		return AccountResponse.from(account);
 	}
 
 	@Transactional
@@ -66,6 +88,22 @@ public class AccountService {
 			}
 		}
 		throw new IllegalStateException("Unable to allocate a unique account number");
+	}
+
+	private void validateUpdate(UpdateAccountRequest request) {
+		if (request.holderName() == null && request.contactInfo() == null) {
+			throw new EmptyUpdateRequestException();
+		}
+		if (request.holderName() != null && !isWithinLength(request.holderName(), 100)) {
+			throw new InvalidAccountHolderNameException();
+		}
+		if (request.contactInfo() != null && !isWithinLength(request.contactInfo(), 200)) {
+			throw new InvalidContactInfoException();
+		}
+	}
+
+	private boolean isWithinLength(String value, int maxLength) {
+		return !value.isBlank() && value.length() <= maxLength;
 	}
 
 }
