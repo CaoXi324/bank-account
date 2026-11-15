@@ -11,9 +11,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import com.hsbc.bankaccount.account.dto.AccountPageResponse;
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
 import com.hsbc.bankaccount.account.dto.UpdateAccountRequest;
@@ -45,6 +47,13 @@ public class AccountController {
 				.buildAndExpand(created.accountNumber())
 				.toUri();
 		return ResponseEntity.created(location).body(created);
+	}
+
+	@GetMapping
+	public AccountPageResponse list(
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "20") int size) {
+		return accountService.list(page, size);
 	}
 
 	@GetMapping("/{accountNumber}")

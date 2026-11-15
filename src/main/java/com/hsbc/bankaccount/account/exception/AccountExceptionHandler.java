@@ -22,6 +22,12 @@ public class AccountExceptionHandler {
 				.body(new ApiError("validation_failed", "Request validation failed", fields));
 	}
 
+	@ExceptionHandler(InvalidPageRequestException.class)
+	ResponseEntity<ApiError> invalidPageRequest(InvalidPageRequestException exception) {
+		return ResponseEntity.badRequest()
+				.body(new ApiError("validation_failed", exception.getMessage()));
+	}
+
 	@ExceptionHandler(EmptyUpdateRequestException.class)
 	ResponseEntity<ApiError> emptyUpdateRequest(EmptyUpdateRequestException exception) {
 		return ResponseEntity.badRequest()

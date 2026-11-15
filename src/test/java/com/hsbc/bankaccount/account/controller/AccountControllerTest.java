@@ -1,6 +1,7 @@
 package com.hsbc.bankaccount.account.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -240,6 +242,63 @@ class AccountControllerTest {
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.error").value("account_not_found"))
 				.andExpect(jsonPath("$.message").value("Account number 1000000000000001 does not exist"));
+	}
+
+	@Test
+	void listsAccountsByPage() throws Exception {
+		String first = createAccount("list-1", "Ada Lovelace", "110101199001011234", "10.00");
+		String second = createAccount("list-2", "Grace Hopper", "110101199002021234", "20.00");
+		String third = createAccount("list-3", "Katherine Johnson", "110101199003031234", "30.00");
+
+		MvcResult firstPage = mockMvc.perform(get("/accounts").param("page", "0").param("size", "2"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accounts", hasSize(2)))
+				.andExpect(jsonPath("$.page").value(0))
+				.andExpect(jsonPath("$.size").value(2))
+				.andExpect(jsonPath("$.totalElements").value(3))
+				.andExpect(jsonPath("$.totalPages").value(2))
+				.andReturn();
+		MvcResult secondPage = mockMvc.perform(get("/accounts").param("page", "1").param("size", "2"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accounts", hasSize(1)))
+				.andExpect(jsonPath("$.page").value(1))
+				.andExpect(jsonPath("$.totalElements").value(3))
+				.andReturn();
+
+		String firstPageBody = firstPage.getResponse().getContentAsString();
+		String secondPageBody = secondPage.getResponse().getContentAsString();
+		assertThat(JsonPath.<String>read(firstPageBody, "$.accounts[0].accountNumber"))
+				.isLessThan(JsonPath.<String>read(firstPageBody, "$.accounts[1].accountNumber"));
+		assertThat(List.of(
+				JsonPath.<String>read(firstPageBody, "$.accounts[0].accountNumber"),
+				JsonPath.<String>read(firstPageBody, "$.accounts[1].accountNumber"),
+				JsonPath.<String>read(secondPageBody, "$.accounts[0].accountNumber")))
+				.containsExactlyInAnyOrder(first, second, third);
+	}
+
+	@Test
+	void listsAClosedAccount() throws Exception {
+		String accountNumber = createAccount("list-closed", "Ada Lovelace", "110101199001011234", "10.00");
+		mockMvc.perform(delete("/accounts/{accountNumber}", accountNumber))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(get("/accounts").param("size", "20"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accounts", hasSize(1)))
+				.andExpect(jsonPath("$.accounts[0].accountNumber").value(accountNumber))
+				.andExpect(jsonPath("$.accounts[0].status").value("CLOSED"));
+	}
+
+	@Test
+	void rejectsAnInvalidPageRequest() throws Exception {
+		mockMvc.perform(get("/accounts").param("page", "-1"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("validation_failed"))
+				.andExpect(jsonPath("$.message").value("page must be 0 or greater and size must be between 1 and 100"));
+
+		mockMvc.perform(get("/accounts").param("size", "0"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("validation_failed"));
 	}
 
 	@Test

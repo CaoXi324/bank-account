@@ -1,8 +1,11 @@
 package com.hsbc.bankaccount.account.service;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hsbc.bankaccount.account.dto.AccountPageResponse;
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
 import com.hsbc.bankaccount.account.dto.UpdateAccountRequest;
@@ -13,6 +16,7 @@ import com.hsbc.bankaccount.account.exception.AccountNotFoundException;
 import com.hsbc.bankaccount.account.exception.EmptyUpdateRequestException;
 import com.hsbc.bankaccount.account.exception.InvalidAccountHolderNameException;
 import com.hsbc.bankaccount.account.exception.InvalidContactInfoException;
+import com.hsbc.bankaccount.account.exception.InvalidPageRequestException;
 import com.hsbc.bankaccount.account.repository.BankAccountRepository;
 
 import jakarta.persistence.EntityManager;
@@ -21,6 +25,8 @@ import jakarta.persistence.EntityManager;
 public class AccountService {
 
 	private static final int MAX_ATTEMPTS = 5;
+
+	private static final int MAX_PAGE_SIZE = 100;
 
 	private final BankAccountRepository repository;
 
@@ -58,6 +64,14 @@ public class AccountService {
 		return repository.findById(accountNumber)
 				.map(AccountResponse::from)
 				.orElseThrow(() -> new AccountNotFoundException(accountNumber));
+	}
+
+	@Transactional(readOnly = true)
+	public AccountPageResponse list(int page, int size) {
+		if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+			throw new InvalidPageRequestException();
+		}
+		return AccountPageResponse.from(repository.findAll(PageRequest.of(page, size, Sort.by("accountNumber"))));
 	}
 
 	@Transactional
