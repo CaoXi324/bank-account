@@ -18,6 +18,8 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import com.hsbc.bankaccount.account.dto.AccountPageResponse;
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
+import com.hsbc.bankaccount.account.dto.TransferRequest;
+import com.hsbc.bankaccount.account.dto.TransferResponse;
 import com.hsbc.bankaccount.account.dto.UpdateAccountRequest;
 import com.hsbc.bankaccount.account.service.AccountService;
 import com.hsbc.bankaccount.account.service.CreateAccountService;
@@ -70,6 +72,11 @@ public class AccountController {
 	public ResponseEntity<Void> delete(@PathVariable String accountNumber) {
 		accountService.delete(accountNumber);
 		return ResponseEntity.noContent().build();
+	}
+
+	@PostMapping("/transfers")
+	public TransferResponse transfer(@Valid @RequestBody TransferRequest request) {
+		return accountService.transfer(request);
 	}
 
 }

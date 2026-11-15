@@ -87,4 +87,16 @@ public class AccountExceptionHandler {
 				.body(new ApiError("account_closed", exception.getMessage()));
 	}
 
+	@ExceptionHandler(InsufficientFundsException.class)
+	ResponseEntity<ApiError> insufficientFunds(InsufficientFundsException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ApiError("insufficient_funds", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SameAccountTransferException.class)
+	ResponseEntity<ApiError> sameAccountTransfer(SameAccountTransferException exception) {
+		return ResponseEntity.badRequest()
+				.body(new ApiError("same_account", exception.getMessage()));
+	}
+
 }

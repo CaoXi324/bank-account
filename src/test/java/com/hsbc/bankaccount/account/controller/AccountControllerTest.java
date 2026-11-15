@@ -32,6 +32,7 @@ import com.hsbc.bankaccount.account.entity.IdempotencyRecord;
 import com.hsbc.bankaccount.account.entity.IdempotencyStatus;
 import com.hsbc.bankaccount.account.repository.BankAccountRepository;
 import com.hsbc.bankaccount.account.repository.IdempotencyRecordRepository;
+import com.hsbc.bankaccount.account.repository.TransferRepository;
 import com.hsbc.bankaccount.account.service.AccountRequestHash;
 import com.jayway.jsonpath.JsonPath;
 
@@ -50,8 +51,12 @@ class AccountControllerTest {
 	@Autowired
 	private IdempotencyRecordRepository idempotencyRecords;
 
+	@Autowired
+	private TransferRepository transfers;
+
 	@AfterEach
 	void deleteSavedRows() {
+		transfers.deleteAll();
 		idempotencyRecords.deleteAll();
 		repository.deleteAll();
 	}
@@ -428,6 +433,127 @@ class AccountControllerTest {
 				.andExpect(jsonPath("$.message").value("Account number 1000000000000001 does not exist"));
 	}
 
+	@Test
+	void transfersFundsBetweenAccounts() throws Exception {
+		String from = createAccount("transfer-from", "Ada Lovelace", "110101199001011234", "10.00");
+		String to = createAccount("transfer-to", "Grace Hopper", "110101199002021234", "5.00");
+
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson(from, to, "4.50")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.from.accountNumber").value(from))
+				.andExpect(jsonPath("$.from.balance").value(5.50))
+				.andExpect(jsonPath("$.to.accountNumber").value(to))
+				.andExpect(jsonPath("$.to.balance").value(9.50))
+				.andExpect(jsonPath("$.amount").value(4.50))
+				.andExpect(jsonPath("$.id").isNumber())
+				.andExpect(jsonPath("$.createdAt").exists());
+
+		assertThat(transfers.findAll()).singleElement().satisfies(transfer -> {
+			assertThat(transfer.getFromAccountNumber()).isEqualTo(from);
+			assertThat(transfer.getToAccountNumber()).isEqualTo(to);
+			assertThat(transfer.getAmount()).isEqualByComparingTo("4.50");
+			assertThat(transfer.getCreatedAt()).isNotNull();
+		});
+
+		assertThat(repository.findById(from)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("5.50"));
+		assertThat(repository.findById(to)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("9.50"));
+	}
+
+	@Test
+	void rejectsATransferWithInsufficientFunds() throws Exception {
+		String from = createAccount("transfer-poor", "Ada Lovelace", "110101199001011234", "10.00");
+		String to = createAccount("transfer-rich", "Grace Hopper", "110101199002021234", "5.00");
+
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson(from, to, "10.01")))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error").value("insufficient_funds"))
+				.andExpect(jsonPath("$.message").value("Account number " + from + " has insufficient funds"));
+
+		assertThat(transfers.findAll()).isEmpty();
+
+		assertThat(repository.findById(from)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("10.00"));
+		assertThat(repository.findById(to)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("5.00"));
+	}
+
+	@Test
+	void rejectsATransferToTheSameAccount() throws Exception {
+		String accountNumber = createAccount("transfer-same", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson(accountNumber, accountNumber, "1.00")))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("same_account"));
+
+		assertThat(repository.findById(accountNumber)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("10.00"));
+	}
+
+	@Test
+	void rejectsATransferWhenAnAccountIsMissing() throws Exception {
+		String from = createAccount("transfer-missing-from", "Ada Lovelace", "110101199001011234", "10.00");
+
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson(from, "1000000000000001", "1.00")))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.error").value("account_not_found"))
+				.andExpect(jsonPath("$.message").value("Account number 1000000000000001 does not exist"));
+
+		assertThat(repository.findById(from)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("10.00"));
+	}
+
+	@Test
+	void rejectsATransferWhenAnAccountIsClosed() throws Exception {
+		String from = createAccount("transfer-closed-from", "Ada Lovelace", "110101199001011234", "10.00");
+		String to = createAccount("transfer-closed-to", "Grace Hopper", "110101199002021234", "5.00");
+		mockMvc.perform(delete("/accounts/{accountNumber}", from))
+				.andExpect(status().isNoContent());
+
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson(from, to, "1.00")))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.error").value("account_closed"))
+				.andExpect(jsonPath("$.message").value("Account number " + from + " is closed"));
+
+		assertThat(repository.findById(to)).get()
+				.extracting(BankAccount::getBalance)
+				.usingComparator(BigDecimal::compareTo)
+				.isEqualTo(new BigDecimal("5.00"));
+	}
+
+	@Test
+	void rejectsANonPositiveTransferAmount() throws Exception {
+		mockMvc.perform(post("/accounts/transfers")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(transferJson("1000000000000001", "1000000000000002", "0")))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.error").value("validation_failed"))
+				.andExpect(jsonPath("$.fields.amount").exists());
+	}
+
 	private String createAccount(String idempotencyKey, String holderName, String holderId, String balance) throws Exception {
 		MvcResult result = mockMvc.perform(post("/accounts")
 				.header("Idempotency-Key", idempotencyKey)
@@ -447,6 +573,16 @@ class AccountControllerTest {
 				  "balance": %s
 				}
 				""".formatted(holderName, holderId, balance);
+	}
+
+	private String transferJson(String fromAccountNumber, String toAccountNumber, String amount) {
+		return """
+				{
+				  "fromAccountNumber": "%s",
+				  "toAccountNumber": "%s",
+				  "amount": %s
+				}
+				""".formatted(fromAccountNumber, toAccountNumber, amount);
 	}
 
 }

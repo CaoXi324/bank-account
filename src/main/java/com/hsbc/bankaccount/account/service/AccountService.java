@@ -1,5 +1,8 @@
 package com.hsbc.bankaccount.account.service;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -8,16 +11,22 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hsbc.bankaccount.account.dto.AccountPageResponse;
 import com.hsbc.bankaccount.account.dto.AccountResponse;
 import com.hsbc.bankaccount.account.dto.CreateAccountRequest;
+import com.hsbc.bankaccount.account.dto.TransferRequest;
+import com.hsbc.bankaccount.account.dto.TransferResponse;
 import com.hsbc.bankaccount.account.dto.UpdateAccountRequest;
 import com.hsbc.bankaccount.account.entity.AccountStatus;
 import com.hsbc.bankaccount.account.entity.BankAccount;
+import com.hsbc.bankaccount.account.entity.Transfer;
 import com.hsbc.bankaccount.account.exception.AccountClosedException;
 import com.hsbc.bankaccount.account.exception.AccountNotFoundException;
 import com.hsbc.bankaccount.account.exception.EmptyUpdateRequestException;
+import com.hsbc.bankaccount.account.exception.InsufficientFundsException;
 import com.hsbc.bankaccount.account.exception.InvalidAccountHolderNameException;
 import com.hsbc.bankaccount.account.exception.InvalidContactInfoException;
 import com.hsbc.bankaccount.account.exception.InvalidPageRequestException;
+import com.hsbc.bankaccount.account.exception.SameAccountTransferException;
 import com.hsbc.bankaccount.account.repository.BankAccountRepository;
+import com.hsbc.bankaccount.account.repository.TransferRepository;
 
 import jakarta.persistence.EntityManager;
 
@@ -30,15 +39,18 @@ public class AccountService {
 
 	private final BankAccountRepository repository;
 
+	private final TransferRepository transfers;
+
 	private final EntityManager entityManager;
 
 	private final AccountNumberGenerator accountNumberGenerator;
 
 	private final IdempotencyRecordService idempotencyRecords;
 
-	public AccountService(BankAccountRepository repository, EntityManager entityManager,
+	public AccountService(BankAccountRepository repository, TransferRepository transfers, EntityManager entityManager,
 			AccountNumberGenerator accountNumberGenerator, IdempotencyRecordService idempotencyRecords) {
 		this.repository = repository;
+		this.transfers = transfers;
 		this.entityManager = entityManager;
 		this.accountNumberGenerator = accountNumberGenerator;
 		this.idempotencyRecords = idempotencyRecords;
@@ -92,6 +104,46 @@ public class AccountService {
 	}
 
 	@Transactional
+	public TransferResponse transfer(TransferRequest request) {
+		String fromAccountNumber = request.fromAccountNumber();
+		String toAccountNumber = request.toAccountNumber();
+		BigDecimal amount = request.amount();
+		if (fromAccountNumber.equals(toAccountNumber)) {
+			throw new SameAccountTransferException();
+		}
+		String firstNumber = fromAccountNumber.compareTo(toAccountNumber) < 0 ? fromAccountNumber : toAccountNumber;
+		String secondNumber = firstNumber.equals(fromAccountNumber) ? toAccountNumber : fromAccountNumber;
+		BankAccount first = repository.findByAccountNumberForUpdate(firstNumber)
+				.orElseThrow(() -> new AccountNotFoundException(firstNumber));
+		BankAccount second = repository.findByAccountNumberForUpdate(secondNumber)
+				.orElseThrow(() -> new AccountNotFoundException(secondNumber));
+		BankAccount source = accountWithNumber(first, second, fromAccountNumber);
+		BankAccount destination = accountWithNumber(first, second, toAccountNumber);
+		if (source.getStatus() == AccountStatus.CLOSED) {
+			throw new AccountClosedException(source.getAccountNumber());
+		}
+		if (destination.getStatus() == AccountStatus.CLOSED) {
+			throw new AccountClosedException(destination.getAccountNumber());
+		}
+		if (source.getBalance().compareTo(amount) < 0) {
+			throw new InsufficientFundsException(source.getAccountNumber());
+		}
+		source.setBalance(source.getBalance().subtract(amount));
+		destination.setBalance(destination.getBalance().add(amount));
+		Transfer transfer = transfers.saveAndFlush(new Transfer(
+				fromAccountNumber,
+				toAccountNumber,
+				amount,
+				Instant.now()));
+		return new TransferResponse(
+				transfer.getId(),
+				AccountResponse.from(source),
+				AccountResponse.from(destination),
+				transfer.getAmount(),
+				transfer.getCreatedAt());
+	}
+
+	@Transactional
 	public void delete(String accountNumber) {
 		BankAccount account = repository.findById(accountNumber)
 				.orElseThrow(() -> new AccountNotFoundException(accountNumber));
@@ -109,6 +161,10 @@ public class AccountService {
 			}
 		}
 		throw new IllegalStateException("Unable to allocate a unique account number");
+	}
+
+	private BankAccount accountWithNumber(BankAccount first, BankAccount second, String accountNumber) {
+		return first.getAccountNumber().equals(accountNumber) ? first : second;
 	}
 
 	private void validateUpdate(UpdateAccountRequest request) {
